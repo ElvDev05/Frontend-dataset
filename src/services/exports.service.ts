@@ -3,6 +3,7 @@ import type { CaptureSet, ExportQuery } from "../types/api";
 
 const fallbackFileNames: Record<CaptureSet, string> = {
   All: "bovine-dataset-all.csv",
+  TwoImages: "bovine-dataset-two-images.csv",
   ThreeImages: "bovine-dataset-three-images.csv",
   FourImages: "bovine-dataset-four-images.csv",
 };

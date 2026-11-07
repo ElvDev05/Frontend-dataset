@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useToast } from "primevue/usetoast";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
-import InputNumber from "primevue/inputnumber";
+import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import SelectButton from "primevue/selectbutton";
 import Message from "primevue/message";
@@ -13,8 +13,8 @@ import LoadState from "../components/shared/LoadState.vue";
 import BreedSelect from "../components/bovines/BreedSelect.vue";
 import { bovinesService } from "../services/bovines.service";
 import { errorMessage, isConflict } from "../utils/errors";
-import { bovineSexOptions, utcToday } from "../utils/format";
-import type { BovineInput, BovineSex } from "../types/api";
+import { ageRangeOptions, bovineSexOptions } from "../utils/format";
+import type { AgeRange, BovineInput, BovineSex } from "../types/api";
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
@@ -26,18 +26,11 @@ const saving = ref(false);
 const error = ref("");
 const conflict = ref(false);
 const version = ref("");
-const ageMode = ref("birth");
-const modes = [
-  { label: "Fecha de nacimiento", value: "birth" },
-  { label: "Edad estimada", value: "estimated" },
-];
 const form = reactive({
   identificationCode: "",
   sex: null as BovineSex | null,
   predominantBreedId: null as number | null,
-  birthDate: "",
-  estimatedAgeMonths: null as number | null,
-  ageReferenceDate: "",
+  ageRange: null as AgeRange | null,
   notes: "",
 });
 async function load() {
@@ -49,11 +42,10 @@ async function load() {
   try {
     const b = await bovinesService.get(id);
     Object.assign(form, b, {
-      birthDate: b.birthDate || "",
-      ageReferenceDate: b.ageReferenceDate || "",
+      // Records migrated without an age must choose a range before saving.
+      ageRange: b.ageRange === "Unspecified" ? null : b.ageRange,
     });
     version.value = b.version;
-    ageMode.value = b.birthDate ? "birth" : "estimated";
   } catch (e) {
     loadError.value = await errorMessage(e);
   } finally {
@@ -63,29 +55,20 @@ async function load() {
 async function save() {
   if (
     !form.identificationCode.trim() ||
-    (form.sex !== "Male" && form.sex !== "Female") ||
-    !form.predominantBreedId
+    (form.sex !== "Male" && form.sex !== "Female")
   ) {
-    error.value = "Completa el código, selecciona el sexo y elige una raza.";
+    error.value = "Completa el código y selecciona el sexo.";
     return;
   }
-  if (
-    ageMode.value === "birth"
-      ? !form.birthDate
-      : form.estimatedAgeMonths == null || !form.ageReferenceDate
-  ) {
-    error.value = "Completa la información de edad seleccionada.";
+  if (!form.ageRange || form.ageRange === "Unspecified") {
+    error.value = "Selecciona el rango de edad del bovino.";
     return;
   }
   const payload: BovineInput = {
     identificationCode: form.identificationCode.trim(),
     sex: form.sex,
-    predominantBreedId: form.predominantBreedId,
-    birthDate: ageMode.value === "birth" ? form.birthDate : null,
-    estimatedAgeMonths:
-      ageMode.value === "estimated" ? form.estimatedAgeMonths : null,
-    ageReferenceDate:
-      ageMode.value === "estimated" ? form.ageReferenceDate : null,
+    predominantBreedId: form.predominantBreedId ?? null,
+    ageRange: form.ageRange,
     notes: form.notes.trim() || null,
   };
   saving.value = true;
@@ -117,7 +100,7 @@ onMounted(load);
   >
   <PageHeader
     :title="editing ? 'Editar bovino' : 'Registrar bovino'"
-    description="Completa su identificación, sexo y la información disponible sobre su edad."
+    description="Completa su identificación, sexo y rango de edad."
   />
   <LoadState :loading="loading" :error="loadError" @retry="load"
     ><form class="panel form-panel" @submit.prevent="save">
@@ -165,70 +148,40 @@ onMounted(load);
             >
           </div>
           <div class="field">
-            <label for="bovine-breed">Raza predominante *</label
+            <label for="bovine-breed"
+              >Raza predominante <span class="optional">Opcional</span></label
             ><BreedSelect
               v-model="form.predominantBreedId"
               input-id="bovine-breed"
+              optional
               :disabled="saving || conflict"
             />
           </div>
         </div>
         <hr />
         <h2>Edad del bovino</h2>
-        <p class="muted">
-          Elige una de las dos opciones. La edad de cada evaluación la calcula
-          el servidor.
-        </p>
-        <SelectButton
-          v-model="ageMode"
-          :options="modes"
-          option-label="label"
-          option-value="value"
-          :allow-empty="false"
-          aria-label="Forma de registrar la edad"
-          :disabled="saving || conflict"
-        />
-        <div class="form-grid spaced">
-          <div v-if="ageMode === 'birth'" class="field">
-            <label for="birth-date">Fecha de nacimiento *</label
-            ><InputText
-              id="birth-date"
-              v-model="form.birthDate"
-              type="date"
-              required
-              :max="utcToday()"
+        <div class="form-grid">
+          <div class="field">
+            <label for="bovine-age-range">Rango de edad *</label
+            ><Select
+              v-model="form.ageRange"
+              input-id="bovine-age-range"
+              :options="ageRangeOptions"
+              option-label="label"
+              option-value="value"
+              placeholder="Selecciona un rango"
+              aria-label="Rango de edad *"
+              :disabled="saving || conflict"
               fluid
-            />
+            /><small
+              v-if="editing && !form.ageRange"
+              class="field-error"
+              >Este registro anterior necesita que indiques su rango de
+              edad.</small
+            ><small v-else class="muted"
+              >Cada evaluación nueva guarda el rango vigente del bovino.</small
+            >
           </div>
-          <template v-else
-            ><div class="field">
-              <label for="estimated-age">Edad estimada en meses *</label
-              ><InputNumber
-                v-model="form.estimatedAgeMonths"
-                input-id="estimated-age"
-                :min="0"
-                :max="600"
-                :max-fraction-digits="0"
-                :use-grouping="false"
-                :input-props="{ required: true }"
-                fluid
-              /><small class="muted">Entre 0 y 600 meses.</small>
-            </div>
-            <div class="field">
-              <label for="reference-date"
-                >Fecha de referencia de la edad *</label
-              ><InputText
-                id="reference-date"
-                v-model="form.ageReferenceDate"
-                type="date"
-                required
-                :max="utcToday()"
-                fluid
-              /><small class="muted"
-                >Fecha en la que tenía la edad indicada.</small
-              >
-            </div></template
-          >
         </div>
         <hr />
         <div class="field">

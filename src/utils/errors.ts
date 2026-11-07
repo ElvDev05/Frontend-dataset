@@ -6,6 +6,8 @@ const messages: Record<string, string> = {
     "El usuario o la contraseña no son correctos.",
   "Bovine was modified. Reload before editing.":
     "Otro usuario modificó el bovino. Recarga el registro antes de guardar.",
+  "Bovine was modified. Reload before deleting.":
+    "Otro usuario modificó el bovino. Recarga su ficha antes de eliminarlo.",
   "Evaluation was modified. Reload before editing.":
     "La evaluación cambió. Recarga sus datos antes de continuar.",
   "Specialist was modified.":
@@ -19,6 +21,9 @@ const messages: Record<string, string> = {
   "Specialist is inactive.":
     "El especialista está inactivo. Selecciona uno activo.",
   "A predominant breed is required.": "Selecciona una raza predominante.",
+  "Predominant breed must be a positive identifier when provided.":
+    "La raza seleccionada no es válida. Elige otra o déjala vacía.",
+  "Select a valid age range.": "Selecciona el rango de edad del bovino.",
   "Bovine sex must be Male or Female.":
     "Selecciona el sexo del bovino: macho o hembra.",
   "Bovine sex filter must be Male or Female.":
@@ -41,6 +46,14 @@ const messages: Record<string, string> = {
     "La evaluación está bloqueada. Un administrador debe rechazarla y reabrirla para permitir cambios.",
   "Exactly one image per angle is allowed, with four images per evaluation.":
     "Solo se permite una fotografía por vista y cuatro por evaluación.",
+  "Exactly one rear image and one lateral image are allowed per evaluation.":
+    "Cada evaluación admite una sola fotografía posterior y una lateral.",
+  "Only rear and lateral images are allowed.":
+    "Solo se admiten las vistas posterior y lateral.",
+  "Body condition score and specialist are required to complete an evaluation.":
+    "Registra la condición corporal y un especialista antes de completar.",
+  "Exactly two verified images are required: rear and one lateral side.":
+    "Se necesitan exactamente dos fotografías verificadas: la posterior y un lateral.",
   "This angle already exists.": "Ya existe una fotografía en esa vista.",
   "Weight, body condition score and specialist are required to complete an evaluation.":
     "Registra el peso, la condición corporal y un especialista antes de completar.",
@@ -107,9 +120,7 @@ const fieldLabels: Record<string, string> = {
   IdentificationCode: "Código de identificación",
   PredominantBreedId: "Raza predominante",
   Sex: "Sexo",
-  BirthDate: "Fecha de nacimiento",
-  EstimatedAgeMonths: "Edad estimada",
-  AgeReferenceDate: "Fecha de referencia",
+  AgeRange: "Rango de edad",
   EvaluationDate: "Fecha de evaluación",
   WeightKg: "Peso",
   BodyConditionScore: "Condición corporal",
@@ -136,6 +147,9 @@ function translate(message: string): string | undefined {
 }
 export function isConflict(error: unknown) {
   return axios.isAxiosError(error) && error.response?.status === 409;
+}
+export function isReferenceConflict(error: unknown) {
+  return axios.isAxiosError<ApiProblem>(error) && error.response?.status === 409 && error.response.data?.code === "reference_conflict";
 }
 export async function errorMessage(error: unknown): Promise<string> {
   if (!axios.isAxiosError<ApiProblem>(error))

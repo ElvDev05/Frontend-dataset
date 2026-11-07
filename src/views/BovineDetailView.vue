@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { useConfirm } from "primevue/useconfirm";
+import { useToast } from "primevue/usetoast";
 import Button from "primevue/button";
 import Paginator from "primevue/paginator";
+import Message from "primevue/message";
 import PageHeader from "../components/shared/PageHeader.vue";
 import LoadState from "../components/shared/LoadState.vue";
-import EvaluationTable from "../components/evaluations/EvaluationTable.vue";
+import BovineHistoryCard from "../components/evaluations/BovineHistoryCard.vue";
 import { bovinesService } from "../services/bovines.service";
 import { breedsService } from "../services/breeds.service";
 import { evaluationsService } from "../services/evaluations.service";
-import { errorMessage } from "../utils/errors";
-import { formatDate, formatSex } from "../utils/format";
+import { useAuthStore } from "../stores/auth";
+import { errorMessage, isReferenceConflict } from "../utils/errors";
+import { formatAgeRange, formatSex } from "../utils/format";
 import type { Bovine, Evaluation } from "../types/api";
 const id = Number(useRoute().params.id);
+const router = useRouter();
+const confirm = useConfirm();
+const toast = useToast();
+const auth = useAuthStore();
 const bovine = ref<Bovine>();
 const breedName = ref("");
 const loading = ref(true);
@@ -22,6 +30,39 @@ const historyLoading = ref(false);
 const historyError = ref("");
 const page = ref(1);
 const total = ref(0);
+const deleting = ref(false);
+const deleteError = ref("");
+function requestDelete() {
+  if (!bovine.value || deleting.value) return;
+  deleteError.value = "";
+  if (total.value > 0) {
+    deleteError.value = "Este bovino tiene evaluaciones. Elimínalas desde su historial antes de borrar la ficha.";
+    return;
+  }
+  confirm.require({
+    header: "Eliminar bovino",
+    message: `Se eliminará la ficha de ${bovine.value.identificationCode}. Esta acción no se puede deshacer.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancelar",
+    acceptLabel: "Eliminar bovino",
+    acceptProps: { severity: "danger" },
+    accept: () => { void deleteBovine(); },
+  });
+}
+async function deleteBovine() {
+  if (!bovine.value) return;
+  deleting.value = true;
+  deleteError.value = "";
+  try {
+    await bovinesService.remove(id, bovine.value.version);
+    toast.add({ severity: "success", summary: "Bovino eliminado", life: 3000 });
+    await router.replace("/bovinos");
+  } catch (cause) {
+    deleteError.value = isReferenceConflict(cause)
+      ? "Este bovino aún tiene evaluaciones. Elimínalas antes de borrar su ficha."
+      : await errorMessage(cause);
+  } finally { deleting.value = false; }
+}
 async function loadHistory() {
   historyLoading.value = true;
   historyError.value = "";
@@ -38,6 +79,7 @@ async function loadHistory() {
 async function load() {
   loading.value = true;
   error.value = "";
+  deleteError.value = "";
   try {
     const [b, breeds] = await Promise.all([
       bovinesService.get(id),
@@ -45,8 +87,10 @@ async function load() {
     ]);
     bovine.value = b;
     breedName.value =
-      breeds.find((r) => r.id === b.predominantBreedId)?.name ||
-      `Raza #${b.predominantBreedId}`;
+      b.predominantBreedId == null
+        ? "Sin raza registrada"
+        : breeds.find((r) => r.id === b.predominantBreedId)?.name ||
+          `Raza #${b.predominantBreedId}`;
     await loadHistory();
   } catch (e) {
     error.value = await errorMessage(e);
@@ -73,7 +117,9 @@ onMounted(load);
             outlined /></RouterLink
         ><RouterLink :to="`/bovinos/${id}/evaluaciones/nueva`"
           ><Button label="Nueva evaluación" icon="pi pi-plus" /></RouterLink
-      ></PageHeader>
+        ><Button v-if="auth.isAdministrator" label="Eliminar bovino" icon="pi pi-trash" severity="danger" outlined :loading="deleting" @click="requestDelete" />
+      </PageHeader>
+      <Message v-if="deleteError" severity="error" class="record-delete-message">{{ deleteError }} <Button label="Recargar ficha" text severity="danger" @click="load" /></Message>
       <section class="panel detail-panel">
         <h2>Información del bovino</h2>
         <dl class="detail-grid">
@@ -85,20 +131,10 @@ onMounted(load);
             <dt>Raza predominante</dt>
             <dd>{{ breedName }}</dd>
           </div>
-          <div v-if="bovine.birthDate">
-            <dt>Fecha de nacimiento</dt>
-            <dd>{{ formatDate(bovine.birthDate) }}</dd>
+          <div>
+            <dt>Rango de edad</dt>
+            <dd>{{ formatAgeRange(bovine.ageRange) }}</dd>
           </div>
-          <template v-else
-            ><div>
-              <dt>Edad estimada de referencia</dt>
-              <dd>{{ bovine.estimatedAgeMonths }} meses</dd>
-            </div>
-            <div>
-              <dt>Fecha de referencia</dt>
-              <dd>{{ formatDate(bovine.ageReferenceDate) }}</dd>
-            </div></template
-          >
         </dl>
         <div v-if="bovine.notes" class="notes-block">
           <h3>Notas</h3>
@@ -126,7 +162,7 @@ onMounted(load);
           empty-title="Este bovino aún no tiene evaluaciones"
           empty-description="Registra su primera evaluación para comenzar el historial."
           @retry="loadHistory"
-          ><EvaluationTable :items="history" /></LoadState
+          ><ul class="history-card-list"><BovineHistoryCard v-for="item in history" :key="item.id" :evaluation="item" /></ul></LoadState
         ><Paginator
           v-if="total > 25 && !historyError"
           :rows="25"

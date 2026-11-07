@@ -51,7 +51,7 @@ async function logout() {
         <i class="pi pi-camera" aria-hidden="true" /><strong
           >Un registro, cobertura confiable</strong
         >
-        <p>Tres vistas obligatorias y un segundo lateral opcional.</p>
+        <p>Lateral derecha y posterior para evaluar.</p>
       </div>
       <div class="sidebar-footer">
         <span class="status-dot" /> Aplicación de campo <small>v1.0</small>

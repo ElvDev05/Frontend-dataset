@@ -1,11 +1,17 @@
 export type Role = "Administrator" | "Collector";
-export type AgeSource = "BirthDate" | "Estimated";
+export type AgeRange =
+  | "Unspecified"
+  | "UnderOneYear"
+  | "OneToTwoYears"
+  | "TwoToFourYears"
+  | "FourYearsOrMore";
+export type RegistrableAgeRange = Exclude<AgeRange, "Unspecified">;
 export type BovineSex = "Unspecified" | "Male" | "Female";
 export type RegistrableBovineSex = Exclude<BovineSex, "Unspecified">;
 export type EvaluationStatus =
   "Draft" | "PendingUpload" | "Complete" | "Rejected";
 export type CaptureAngle = "LeftLateral" | "RightLateral" | "TopBack" | "Rear";
-export type CaptureSet = "All" | "ThreeImages" | "FourImages";
+export type CaptureSet = "All" | "TwoImages" | "ThreeImages" | "FourImages";
 export type ImageUploadStatus = "PendingUpload" | "Verified";
 export interface PageResult<T> {
   items: T[];
@@ -35,6 +41,7 @@ export interface Breed {
   id: number;
   name: string;
   isActive: boolean;
+  version: string;
 }
 export interface Specialist {
   id: number;
@@ -45,15 +52,14 @@ export interface Specialist {
 export interface BovineInput {
   identificationCode: string;
   sex: RegistrableBovineSex;
-  predominantBreedId: number;
-  birthDate: string | null;
-  estimatedAgeMonths: number | null;
-  ageReferenceDate: string | null;
+  predominantBreedId: number | null;
+  ageRange: RegistrableAgeRange;
   notes: string | null;
 }
-export interface Bovine extends Omit<BovineInput, "sex"> {
+export interface Bovine extends Omit<BovineInput, "sex" | "ageRange"> {
   id: number;
   sex: BovineSex;
+  ageRange: AgeRange;
   notes: string;
   version: string;
 }
@@ -77,8 +83,7 @@ export interface EvaluationImage {
 export interface Evaluation extends EvaluationInput {
   id: number;
   bovineId: number;
-  ageMonths: number;
-  ageSource: AgeSource;
+  ageRange: AgeRange;
   notes: string;
   status: EvaluationStatus;
   rejectionReason: string | null;

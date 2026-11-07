@@ -4,8 +4,8 @@ import Button from "primevue/button";
 import ProgressBar from "primevue/progressbar";
 import Tag from "primevue/tag";
 import Message from "primevue/message";
-import Select from "primevue/select";
 import { useConfirm } from "primevue/useconfirm";
+import ImageZoomDialog from "./ImageZoomDialog.vue";
 import { imagesService } from "../../services/images.service";
 import { errorMessage } from "../../utils/errors";
 import { validateImage } from "../../utils/imageValidation";
@@ -18,6 +18,7 @@ import type {
 const props = defineProps<{
   evaluationId: number;
   angle: CaptureAngle;
+  position: number;
   image?: EvaluationImage;
   locked: boolean;
   disabled: boolean;
@@ -25,12 +26,10 @@ const props = defineProps<{
   progress: number;
   phase: string;
   error: string;
-  freeAngles: CaptureAngle[];
 }>();
 const emit = defineEmits<{
   upload: [file: File];
   remove: [];
-  changeAngle: [angle: CaptureAngle];
 }>();
 const confirm = useConfirm();
 const file = ref<File>();
@@ -41,7 +40,7 @@ const download = ref<DownloadTicket>();
 const downloadError = ref("");
 const downloading = ref(false);
 const input = ref<HTMLInputElement>();
-const selectedAngle = ref<CaptureAngle | null>(null);
+const enlarged = ref(false);
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
 const info = angles.find((a) => a.value === props.angle)!;
@@ -115,18 +114,6 @@ function remove() {
     accept: () => emit("remove"),
   });
 }
-function changeAngle() {
-  if (!selectedAngle.value) return;
-  const target = selectedAngle.value;
-  confirm.require({
-    header: "Cambiar vista",
-    message:
-      "Confirma que la fotografía corresponde a la nueva vista seleccionada.",
-    acceptLabel: "Cambiar vista",
-    rejectLabel: "Cancelar",
-    accept: () => emit("changeAngle", target),
-  });
-}
 onBeforeUnmount(() => {
   disposed = true;
   clearTimeout(refreshTimer);
@@ -139,9 +126,7 @@ onBeforeUnmount(() => {
     :class="{ verified: image?.uploadStatus === 'Verified' }"
   >
     <div class="image-card-title">
-      <span class="angle-number">{{
-        angles.findIndex((a) => a.value === angle) + 1
-      }}</span>
+      <span class="angle-number">{{ position }}</span>
       <h3>{{ info.label }}</h3>
       <Tag
         v-if="image?.uploadStatus === 'Verified'"
@@ -195,6 +180,15 @@ onBeforeUnmount(() => {
     </div>
     <div class="image-card-body">
       <p class="muted">{{ info.hint }}</p>
+      <Button
+        v-if="preview || download?.url"
+        label="Ampliar fotografía"
+        icon="pi pi-search-plus"
+        text
+        size="small"
+        class="image-expand-action"
+        @click="enlarged = true"
+      />
       <small v-if="file" class="file-name"
         >{{ file.name }} · {{ (file.size / 1024 / 1024).toFixed(2) }} MiB</small
       ><Message
@@ -262,28 +256,13 @@ onBeforeUnmount(() => {
           @click="emit('upload', file)"
         />
       </div>
-      <details
-        v-if="image && !locked && freeAngles.length"
-        class="angle-change"
-      >
-        <summary>La fotografía corresponde a otra vista</summary>
-        <Select
-          v-model="selectedAngle"
-          :options="angles.filter((a) => freeAngles.includes(a.value))"
-          option-label="label"
-          option-value="value"
-          :aria-label="`Nueva vista para ${info.label}`"
-          placeholder="Vista disponible"
-          :disabled="disabled || busy"
-          fluid
-        /><Button
-          label="Cambiar vista"
-          text
-          size="small"
-          :disabled="!selectedAngle || disabled || busy"
-          @click="changeAngle"
-        />
-      </details>
     </div>
   </article>
+  <ImageZoomDialog
+    v-if="preview || download?.url"
+    v-model:visible="enlarged"
+    :src="preview || download?.url || ''"
+    :alt="`Fotografía: ${info.label.toLowerCase()}`"
+    :title="info.label"
+  />
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useToast } from "primevue/usetoast";
+import { useConfirm } from "primevue/useconfirm";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dialog from "primevue/dialog";
@@ -12,10 +13,11 @@ import PageHeader from "../components/shared/PageHeader.vue";
 import LoadState from "../components/shared/LoadState.vue";
 import { breedsService } from "../services/breeds.service";
 import { useAuthStore } from "../stores/auth";
-import { errorMessage } from "../utils/errors";
+import { errorMessage, isReferenceConflict } from "../utils/errors";
 import type { Breed } from "../types/api";
 const auth = useAuthStore();
 const toast = useToast();
+const confirm = useConfirm();
 const items = ref<Breed[]>([]);
 const loading = ref(true);
 const error = ref("");
@@ -23,9 +25,12 @@ const visible = ref(false);
 const name = ref("");
 const saving = ref(false);
 const formError = ref("");
+const deletingId = ref<number | null>(null);
+const deleteError = ref("");
 async function load() {
   loading.value = true;
   error.value = "";
+  deleteError.value = "";
   try {
     items.value = await breedsService.list();
   } catch (e) {
@@ -33,6 +38,32 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+function confirmDelete(breed: Breed) {
+  if (deletingId.value != null) return;
+  deleteError.value = "";
+  confirm.require({
+    header: "Eliminar raza",
+    message: `Se eliminará la raza ${breed.name}. Si está asignada a algún bovino, primero tendrás que cambiar esa ficha. Esta acción no se puede deshacer.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancelar",
+    acceptLabel: "Eliminar raza",
+    acceptProps: { severity: "danger" },
+    accept: () => { void deleteBreed(breed); },
+  });
+}
+async function deleteBreed(breed: Breed) {
+  deletingId.value = breed.id;
+  deleteError.value = "";
+  try {
+    await breedsService.remove(breed.id, breed.version);
+    items.value = items.value.filter(item => item.id !== breed.id);
+    toast.add({ severity: "success", summary: "Raza eliminada", life: 3000 });
+  } catch (cause) {
+    deleteError.value = isReferenceConflict(cause)
+      ? `La raza ${breed.name} está asignada a bovinos. Cambia esas fichas antes de eliminarla.`
+      : await errorMessage(cause);
+  } finally { deletingId.value = null; }
 }
 async function save() {
   if (!name.value.trim()) {
@@ -80,6 +111,7 @@ onMounted(load);
         @click="load"
       />
     </div>
+    <Message v-if="deleteError" severity="error" class="record-delete-message">{{ deleteError }} <Button label="Recargar razas" text severity="danger" @click="load" /></Message>
     <LoadState
       :loading="loading"
       :error="error"
@@ -99,7 +131,7 @@ onMounted(load);
               :value="data.isActive ? 'Activa' : 'Inactiva'"
               :severity="
                 data.isActive ? 'success' : 'secondary'
-              " /></template></Column></DataTable
+              " /></template></Column><Column v-if="auth.isAdministrator" header="Acciones"><template #body="{ data }"><Button label="Eliminar" icon="pi pi-trash" severity="danger" text size="small" :loading="deletingId === data.id" :disabled="deletingId != null && deletingId !== data.id" :aria-label="`Eliminar raza ${data.name}`" @click="confirmDelete(data)" /></template></Column></DataTable
     ></LoadState>
   </section>
   <Dialog

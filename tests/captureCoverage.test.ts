@@ -26,45 +26,42 @@ function image(
   };
 }
 
-test("accepts either lateral together with top and rear as minimum coverage", () => {
+test("accepts rear plus either lateral as the two required photographs", () => {
   for (const lateral of ["LeftLateral", "RightLateral"] as const) {
-    const images = [image(lateral), image("TopBack"), image("Rear")];
-    assert.equal(captureCoverage(images), "ThreeImages");
+    const images = [image(lateral), image("Rear")];
+    assert.equal(captureCoverage(images), "TwoImages");
     assert.deepEqual(captureRequirementMessages(images), []);
   }
 });
 
-test("distinguishes four-image coverage from an invalid three-image set", () => {
-  assert.equal(
-    captureCoverage([
-      image("LeftLateral"),
-      image("RightLateral"),
-      image("TopBack"),
-      image("Rear"),
-    ]),
-    "FourImages",
-  );
-
-  const withoutRear = [
-    image("LeftLateral"),
-    image("RightLateral"),
-    image("TopBack"),
-  ];
+test("rejects sets without rear, with a top-back photo or with both laterals", () => {
+  const withoutRear = [image("LeftLateral")];
   assert.equal(captureCoverage(withoutRear), "Incomplete");
   assert.deepEqual(captureRequirementMessages(withoutRear), [
     "Verificar la vista posterior.",
   ]);
+
+  const withTopBack = [image("RightLateral"), image("TopBack"), image("Rear")];
+  assert.equal(captureCoverage(withTopBack), "Incomplete");
+  assert.deepEqual(captureRequirementMessages(withTopBack), [
+    "Retirar la fotografía superior del lomo; ya no se utiliza.",
+  ]);
+
+  const bothLaterals = [
+    image("LeftLateral"),
+    image("RightLateral"),
+    image("Rear"),
+  ];
+  assert.equal(captureCoverage(bothLaterals), "Incomplete");
+  assert.deepEqual(captureRequirementMessages(bothLaterals), [
+    "Retirar uno de los dos laterales; solo se admite uno.",
+  ]);
 });
 
-test("blocks completion while an optional fourth photograph remains pending", () => {
-  const images = [
-    image("LeftLateral"),
-    image("TopBack"),
-    image("Rear"),
-    image("RightLateral", "PendingUpload"),
-  ];
+test("blocks completion while a photograph remains pending", () => {
+  const images = [image("RightLateral"), image("Rear", "PendingUpload")];
   assert.equal(captureCoverage(images), "Incomplete");
   assert.deepEqual(captureRequirementMessages(images), [
-    "Finalizar o retirar la fotografía que continúa pendiente.",
+    "Verificar la vista posterior.",
   ]);
 });

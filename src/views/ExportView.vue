@@ -15,10 +15,12 @@ const from = ref("");
 const to = ref("");
 const bovineId = ref<number | null>(null);
 const captureSet = ref<CaptureSet>("All");
+// New evaluations close with two photographs; 3 and 4 remain for earlier records.
 const captureSets: { value: CaptureSet; label: string }[] = [
-  { value: "All", label: "Todas (3 y 4 fotografías)" },
-  { value: "FourImages", label: "Solo cobertura completa (4 fotografías)" },
-  { value: "ThreeImages", label: "Solo cobertura mínima (3 fotografías)" },
+  { value: "All", label: "Todas" },
+  { value: "TwoImages", label: "2 fotografías (posterior y lateral)" },
+  { value: "ThreeImages", label: "3 fotografías (registros anteriores)" },
+  { value: "FourImages", label: "4 fotografías (registros anteriores)" },
 ];
 const busy = ref(false);
 const error = ref("");
@@ -63,8 +65,9 @@ async function download() {
         <p class="muted">
           Una fila por fotografía verificada de una evaluación completada.
           Incluye identificación, sexo, raza, edad, peso, condición corporal y
-          especialista. Puedes separar los bovinos con tres fotografías de los
-          que tienen las cuatro.
+          especialista. Las evaluaciones nuevas se completan con dos
+          fotografías; puedes filtrar también los registros anteriores con
+          tres o cuatro.
         </p>
       </div>
     </div>

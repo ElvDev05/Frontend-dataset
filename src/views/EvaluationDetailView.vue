@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import Button from "primevue/button";
@@ -11,6 +11,7 @@ import PageHeader from "../components/shared/PageHeader.vue";
 import LoadState from "../components/shared/LoadState.vue";
 import StatusTag from "../components/evaluations/StatusTag.vue";
 import EvaluationImages from "../components/images/EvaluationImages.vue";
+import EvaluationScorePanel from "../components/evaluations/EvaluationScorePanel.vue";
 import { evaluationsService } from "../services/evaluations.service";
 import { bovinesService } from "../services/bovines.service";
 import { specialistsService } from "../services/specialists.service";
@@ -21,14 +22,15 @@ import {
   captureRequirementMessages,
 } from "../utils/captureCoverage";
 import {
-  ageLabels,
   editable,
+  formatAgeRange,
   formatDate,
   formatNumber,
   formatSex,
 } from "../utils/format";
 import type { Bovine, Evaluation, Specialist } from "../types/api";
 const id = Number(useRoute().params.id);
+const router = useRouter();
 const auth = useAuthStore();
 const confirm = useConfirm();
 const toast = useToast();
@@ -39,6 +41,7 @@ const loading = ref(true);
 const loadError = ref("");
 const error = ref("");
 const busy = ref(false);
+const deleting = ref(false);
 const uploading = ref(false);
 const conflict = ref(false);
 const rejectVisible = ref(false);
@@ -51,16 +54,11 @@ const coverage = computed(() =>
     ? captureCoverage(evaluation.value.images)
     : "Incomplete",
 );
-const coverageDescription = computed(() =>
-  coverage.value === "FourImages"
-    ? "cobertura completa de cuatro fotografías"
-    : "cobertura mínima de tres fotografías",
-);
+const coverageDescription = "las dos fotografías requeridas (posterior y lateral)";
 const missing = computed(() => {
   const e = evaluation.value;
   if (!e) return [];
   const messages: string[] = [];
-  if (e.weightKg == null) messages.push("Registrar el peso.");
   if (e.bodyConditionScore == null)
     messages.push("Registrar la condición corporal.");
   if (!selectedSpecialist.value?.isActive)
@@ -124,7 +122,7 @@ function confirmAction(action: "complete" | "reopen") {
       action === "complete" ? "Completar evaluación" : "Reabrir evaluación",
     message:
       action === "complete"
-        ? `Se completará con ${coverageDescription.value}. Las mediciones y fotografías se bloquearán y la evaluación se incluirá en la exportación CSV.`
+        ? `Se completará con ${coverageDescription}. Las mediciones y fotografías se bloquearán y la evaluación se incluirá en la exportación CSV.`
         : "La evaluación volverá a estar disponible para editar sus datos y fotografías.",
     icon: "pi pi-exclamation-circle",
     acceptLabel: action === "complete" ? "Completar" : "Reabrir",
@@ -133,6 +131,32 @@ function confirmAction(action: "complete" | "reopen") {
       void act(action);
     },
   });
+}
+function confirmDelete() {
+  if (!evaluation.value || busy.value || uploading.value || deleting.value) return;
+  confirm.require({
+    header: "Eliminar evaluación",
+    message: `Se eliminará la evaluación #${id} y sus fotografías dejarán de aparecer en la aplicación. Esta acción no se puede deshacer.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancelar",
+    acceptLabel: "Eliminar evaluación",
+    acceptProps: { severity: "danger" },
+    accept: () => { void deleteEvaluation(); },
+  });
+}
+async function deleteEvaluation() {
+  if (!evaluation.value) return;
+  deleting.value = true;
+  busy.value = true;
+  error.value = "";
+  try {
+    await evaluationsService.remove(id, evaluation.value.version);
+    toast.add({ severity: "success", summary: "Evaluación eliminada", life: 3000 });
+    await router.replace(`/bovinos/${evaluation.value.bovineId}`);
+  } catch (cause) {
+    error.value = await errorMessage(cause);
+    conflict.value = isConflict(cause);
+  } finally { deleting.value = false; busy.value = false; }
 }
 onMounted(load);
 </script>
@@ -168,7 +192,15 @@ onMounted(load);
             label="Editar datos"
             icon="pi pi-pencil"
             severity="secondary"
-            outlined /></RouterLink></PageHeader
+            outlined /></RouterLink><Button
+          v-if="auth.isAdministrator"
+          label="Eliminar evaluación"
+          icon="pi pi-trash"
+          severity="danger"
+          outlined
+          :loading="deleting"
+          :disabled="busy || uploading || conflict"
+          @click="confirmDelete" /></PageHeader
       ><Message v-if="error" severity="error"
         >{{ error
         }}<Button
@@ -184,11 +216,7 @@ onMounted(load);
         <dl class="detail-grid">
           <div>
             <dt>Edad en esta evaluación</dt>
-            <dd>
-              {{ evaluation.ageMonths }} meses<small>{{
-                ageLabels[evaluation.ageSource]
-              }}</small>
-            </dd>
+            <dd>{{ formatAgeRange(evaluation.ageRange) }}</dd>
           </div>
           <div>
             <dt>Peso</dt>
@@ -222,15 +250,13 @@ onMounted(load);
           <h3>Notas</h3>
           <p>{{ evaluation.notes }}</p>
         </div>
-        <Message
-          v-if="evaluation.rejectionReason"
-          :severity="evaluation.status === 'Rejected' ? 'error' : 'info'"
-          >{{
-            evaluation.status === "Rejected"
-              ? "Motivo del rechazo"
-              : "Último motivo de rechazo"
-          }}: {{ evaluation.rejectionReason }}</Message
-        >
+        <div v-if="evaluation.rejectionReason" class="evaluation-notice" :class="{ danger: evaluation.status === 'Rejected' }" role="note">
+          <i :class="evaluation.status === 'Rejected' ? 'pi pi-exclamation-circle' : 'pi pi-info-circle'" aria-hidden="true" />
+          <div>
+            <strong>{{ evaluation.status === 'Rejected' ? 'Motivo del rechazo' : 'Último motivo de rechazo' }}</strong>
+            <p>{{ evaluation.rejectionReason }}</p>
+          </div>
+        </div>
         <p v-if="evaluation.completedAt" class="muted">
           Completada el {{ formatDate(evaluation.completedAt) }}.
         </p>
@@ -239,7 +265,8 @@ onMounted(load);
         v-model="evaluation"
         :disabled="busy || conflict"
         @busy="uploading = $event" />
-      <section class="panel detail-panel completion-panel">
+      <EvaluationScorePanel v-model="evaluation" :disabled="busy || uploading || deleting || conflict" :removing="deleting" @reload="load" />
+      <section v-if="auth.isAdministrator || coverage !== 'Incomplete' || !editable(evaluation.status)" class="panel detail-panel completion-panel">
         <div>
           <h2>
             {{
@@ -247,12 +274,21 @@ onMounted(load);
                 ? "Evaluación completada"
                 : evaluation.status === "Rejected"
                   ? "Evaluación rechazada"
-                  : "Finalizar evaluación"
+                  : coverage === 'Incomplete' ? 'Estado de la evaluación' : "Finalizar evaluación"
             }}
           </h2>
-          <template v-if="editable(evaluation.status)"
+          <template v-if="editable(evaluation.status) && coverage === 'Incomplete'"
+            ><p class="muted">
+              Para completar la evaluación se necesitan exactamente dos
+              fotografías verificadas: la posterior y un lateral.
+            </p>
+            <ul class="requirements">
+              <li v-for="item in captureRequirementMessages(evaluation.images)" :key="item">{{ item }}</li>
+            </ul></template
+          >
+          <template v-else-if="editable(evaluation.status)"
             ><p v-if="!missing.length" class="muted">
-              Los datos y la {{ coverageDescription }} están listos para
+              Los datos y {{ coverageDescription }} están listos para
               completar.
             </p>
             <template v-else
@@ -272,7 +308,7 @@ onMounted(load);
         </div>
         <div class="actions">
           <Button
-            v-if="editable(evaluation.status)"
+            v-if="editable(evaluation.status) && coverage !== 'Incomplete'"
             label="Completar evaluación"
             icon="pi pi-check-circle"
             :loading="busy"

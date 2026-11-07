@@ -13,4 +13,7 @@ export const bovinesService = {
     (await http.post<Bovine>("/bovines", body)).data,
   update: async (id: number, body: BovineInput & { version: string }) =>
     (await http.put<Bovine>(`/bovines/${id}`, body)).data,
+  remove: async (id: number, version: string) => {
+    await http.delete(`/bovines/${id}`, { params: { version } });
+  },
 };

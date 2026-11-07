@@ -1,8 +1,9 @@
 import type {
-  AgeSource,
+  AgeRange,
   BovineSex,
   CaptureAngle,
   EvaluationStatus,
+  RegistrableAgeRange,
   RegistrableBovineSex,
   Role,
 } from "../types/api";
@@ -17,10 +18,21 @@ export const statusLabels: Record<EvaluationStatus, string> = {
   Complete: "Completada",
   Rejected: "Rechazada",
 };
-export const ageLabels: Record<AgeSource, string> = {
-  BirthDate: "Fecha de nacimiento",
-  Estimated: "Edad estimada",
+export const ageRangeLabels: Record<AgeRange, string> = {
+  Unspecified: "Sin especificar",
+  UnderOneYear: "Menos de 1 año",
+  OneToTwoYears: "De 1 a 2 años",
+  TwoToFourYears: "De 2 a 4 años",
+  FourYearsOrMore: "4 años o más",
 };
+export const formatAgeRange = (value: AgeRange | null | undefined) =>
+  ageRangeLabels[value ?? "Unspecified"];
+export const ageRangeOptions: {
+  value: RegistrableAgeRange;
+  label: string;
+}[] = (
+  ["UnderOneYear", "OneToTwoYears", "TwoToFourYears", "FourYearsOrMore"] as const
+).map((value) => ({ value, label: ageRangeLabels[value] }));
 export const sexLabels: Record<BovineSex, string> = {
   Unspecified: "Sin especificar",
   Male: "Macho",

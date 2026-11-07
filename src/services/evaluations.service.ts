@@ -21,6 +21,9 @@ export const evaluationsService = {
     (await http.post<Evaluation>(`/bovines/${id}/evaluations`, body)).data,
   update: async (id: number, body: EvaluationInput & { version: string }) =>
     (await http.put<Evaluation>(`/evaluations/${id}`, body)).data,
+  remove: async (id: number, version: string) => {
+    await http.delete(`/evaluations/${id}`, { params: { version } });
+  },
   complete: async (id: number, version: string) =>
     (await http.post<Evaluation>(`/evaluations/${id}/complete`, { version }))
       .data,

@@ -1,198 +1,83 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import Button from "primevue/button";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
-import DataTable from "primevue/datatable";
-import Column from "primevue/column";
-import Paginator from "primevue/paginator";
-import PageHeader from "../components/shared/PageHeader.vue";
-import LoadState from "../components/shared/LoadState.vue";
-import BreedSelect from "../components/bovines/BreedSelect.vue";
-import { bovinesService } from "../services/bovines.service";
-import { breedsService } from "../services/breeds.service";
-import { errorMessage } from "../utils/errors";
-import { bovineSexOptions, formatDate, formatSex } from "../utils/format";
-import type { Bovine, Breed, RegistrableBovineSex } from "../types/api";
-const items = ref<Bovine[]>([]);
+import { computed, onMounted, ref, watch } from 'vue';
+import Button from 'primevue/button';
+import Paginator from 'primevue/paginator';
+import PageHeader from '../components/shared/PageHeader.vue';
+import LoadState from '../components/shared/LoadState.vue';
+import { bovinesService } from '../services/bovines.service';
+import { evaluationsService } from '../services/evaluations.service';
+import { breedsService } from '../services/breeds.service';
+import { errorMessage } from '../utils/errors';
+import { formatAgeRange, formatDate, formatSex } from '../utils/format';
+import { allPages, hasScore, latestByBovine } from '../utils/scoring';
+import type { Bovine, Breed, Evaluation } from '../types/api';
+type Filter = 'all' | 'scored' | 'pending';
+const bovines = ref<Bovine[]>([]);
 const breeds = ref<Breed[]>([]);
+const latest = ref(new Map<number, Evaluation>());
 const loading = ref(true);
-const error = ref("");
-const code = ref("");
-const breedId = ref<number | null>(null);
-const sex = ref<RegistrableBovineSex | null>(null);
-const page = ref(1);
-const pageSize = ref(25);
-const total = ref(0);
+const error = ref('');
+const filter = ref<Filter>('all');
+const page = ref(0);
+const evaluated = computed(() => bovines.value.filter(bovine => hasScore(latest.value.get(bovine.id))).length);
+const filtered = computed(() => bovines.value.filter(bovine =>
+  filter.value === 'all' || hasScore(latest.value.get(bovine.id)) === (filter.value === 'scored')));
+const visible = computed(() => filtered.value.slice(page.value * 20, (page.value + 1) * 20));
+watch(filter, () => page.value = 0);
 async function load() {
   loading.value = true;
-  error.value = "";
+  error.value = '';
   try {
-    const [result, catalog] = await Promise.all([
-      bovinesService.list({
-        code: code.value.trim() || undefined,
-        breedId: breedId.value ?? undefined,
-        sex: sex.value ?? undefined,
-        page: page.value,
-        pageSize: pageSize.value,
-      }),
+    const [animals, visits, catalog] = await Promise.all([
+      allPages(page => bovinesService.list({ page, pageSize: 100 })),
+      allPages(page => evaluationsService.list({ page, pageSize: 100 })),
       breedsService.list(),
     ]);
-    items.value = result.items;
-    total.value = result.total;
+    bovines.value = animals;
+    latest.value = latestByBovine(visits);
     breeds.value = catalog;
-  } catch (e) {
-    error.value = await errorMessage(e);
-  } finally {
-    loading.value = false;
-  }
-}
-function search() {
-  page.value = 1;
-  void load();
+    page.value = 0;
+  } catch (e) { error.value = await errorMessage(e); }
+  finally { loading.value = false; }
 }
 onMounted(load);
 </script>
 <template>
-  <PageHeader
-    title="Bovinos"
-    eyebrow="REGISTRO DE CAMPO"
-    description="Identifica tus bovinos y sigue el historial de cada evaluación."
-    ><RouterLink to="/bovinos/nuevo"
-      ><Button label="Registrar bovino" icon="pi pi-plus" /></RouterLink
-  ></PageHeader>
-  <section class="intro-strip">
-    <div class="intro-icon">
-      <i class="pi pi-th-large" aria-hidden="true" />
-    </div>
-    <div>
-      <strong>El punto de partida de una buena captura</strong>
-      <p>
-        Selecciona un bovino para registrar su evaluación y la cobertura
-        fotográfica necesaria.
-      </p>
-    </div>
-    <span class="strip-badge">Identificación → Evaluación → Fotografías</span>
-  </section>
-  <section class="panel">
+  <PageHeader title="Bovinos" description="Consulta el registro y el avance de las evaluaciones.">
+    <RouterLink to="/bovinos/nuevo"><Button label="Registrar bovino" icon="pi pi-plus" /></RouterLink>
+  </PageHeader>
+  <section class="panel bovines-panel">
     <div class="panel-heading">
-      <h2>
-        Registro de bovinos
-        <span v-if="!loading && !error" class="count-badge">{{ total }}</span>
-      </h2>
-      <Button
-        icon="pi pi-refresh"
-        text
-        severity="secondary"
-        aria-label="Actualizar bovinos"
-        :disabled="loading"
-        @click="load"
-      />
+      <h2>Registro de bovinos <span v-if="!loading && !error" class="count-badge">{{ bovines.length }}</span></h2>
+      <Button icon="pi pi-refresh" text severity="secondary" aria-label="Actualizar bovinos" :disabled="loading" @click="load" />
     </div>
-    <form class="filter-bar" @submit.prevent="search">
-      <div class="field search-field">
-        <label for="code-search">Código de identificación</label
-        ><InputText
-          id="code-search"
-          v-model="code"
-          placeholder="Buscar por código…"
-          :maxlength="80"
-          fluid
-        />
+    <LoadState :loading="loading" :error="error" @retry="load">
+      <div class="bovine-filters" role="group" aria-label="Filtrar bovinos por evaluación">
+        <button v-for="option in [
+          { value: 'all', label: 'Todos', count: bovines.length },
+          { value: 'scored', label: 'Evaluados', count: evaluated },
+          { value: 'pending', label: 'No evaluados', count: bovines.length - evaluated },
+        ]" :key="option.value" type="button" :aria-pressed="filter === option.value" @click="filter = option.value as Filter">
+          {{ option.label }} <span>{{ option.count }}</span>
+        </button>
       </div>
-      <div class="field">
-        <label for="breed-filter">Raza predominante</label
-        ><BreedSelect v-model="breedId" input-id="breed-filter" filter-mode />
-      </div>
-      <div class="field">
-        <label for="sex-filter">Sexo</label
-        ><Select
-          v-model="sex"
-          input-id="sex-filter"
-          :options="bovineSexOptions"
-          option-label="label"
-          option-value="value"
-          placeholder="Todos"
-          aria-label="Sexo"
-          show-clear
-          fluid
-        />
-      </div>
-      <Button
-        type="submit"
-        label="Buscar"
-        icon="pi pi-search"
-        :disabled="loading"
-      />
-    </form>
-    <LoadState
-      :loading="loading"
-      :error="error"
-      :empty="!items.length"
-      empty-title="No se encontraron bovinos"
-      empty-description="Registra tu primer bovino o ajusta los filtros de búsqueda."
-      @retry="load"
-    >
-      <DataTable
-        :value="items"
-        data-key="id"
-        striped-rows
-        table-style="min-width: 740px"
-        ><Column header="Identificación"
-          ><template #body="{ data }"
-            ><RouterLink :to="`/bovinos/${data.id}`" class="table-link"
-              ><span class="record-icon"
-                ><i class="pi pi-tag" aria-hidden="true" /></span
-              >{{ data.identificationCode
-              }}<i
-                class="pi pi-arrow-up-right"
-                aria-hidden="true" /></RouterLink></template></Column
-        ><Column header="Sexo"
-          ><template #body="{ data }">{{
-            formatSex((data as Bovine).sex)
-          }}</template></Column
-        ><Column header="Raza predominante"
-          ><template #body="{ data }">{{
-            breeds.find((b) => b.id === data.predominantBreedId)?.name ||
-            `Raza #${data.predominantBreedId}`
-          }}</template></Column
-        ><Column header="Registro de edad"
-          ><template #body="{ data }"
-            ><span v-if="data.birthDate"
-              >{{ formatDate(data.birthDate)
-              }}<small class="cell-help">Fecha de nacimiento</small></span
-            ><span v-else
-              >{{ data.estimatedAgeMonths }} meses<small class="cell-help"
-                >Estimados al {{ formatDate(data.ageReferenceDate) }}</small
-              ></span
-            ></template
-          ></Column
-        ><Column header="Detalle"
-          ><template #body="{ data }"
-            ><RouterLink :to="`/bovinos/${data.id}`"
-              ><Button
-                label="Ver bovino"
-                icon="pi pi-angle-right"
-                icon-pos="right"
-                text
-                size="small" /></RouterLink></template></Column
-      ></DataTable> </LoadState
-    ><Paginator
-      v-if="!error && total > 0"
-      :first="(page - 1) * pageSize"
-      :rows="pageSize"
-      :total-records="total"
-      :rows-per-page-options="[10, 25, 50, 100]"
-      template="PrevPageLink CurrentPageReport NextPageLink RowsPerPageDropdown"
-      current-page-report-template="{first}–{last} de {totalRecords}"
-      :always-show="true"
-      @page="
-        (event) => {
-          page = event.page + 1;
-          pageSize = event.rows;
-          load();
-        }
-      "
-    />
+      <p v-if="!filtered.length" class="bovine-list-empty" role="status">{{ !bovines.length ? 'Todavía no hay bovinos registrados.' : 'No hay bovinos en este filtro.' }}</p>
+      <ul v-else class="bovine-card-list">
+        <li v-for="bovine in visible" :key="bovine.id" class="bovine-card">
+          <div class="bovine-card-top">
+            <h3>{{ bovine.identificationCode }}</h3>
+            <span class="score-tag" :class="{ scored: hasScore(latest.get(bovine.id)) }">{{ hasScore(latest.get(bovine.id)) ? 'Evaluado' : 'No evaluado' }}</span>
+          </div>
+          <dl class="bovine-card-data">
+            <div><dt>Sexo:</dt><dd>{{ formatSex(bovine.sex) }}</dd></div>
+            <div><dt>Raza:</dt><dd>{{ bovine.predominantBreedId == null ? 'Sin raza registrada' : breeds.find(b => b.id === bovine.predominantBreedId)?.name || `Raza #${bovine.predominantBreedId}` }}</dd></div>
+            <div><dt>Edad:</dt><dd>{{ formatAgeRange(bovine.ageRange) }}</dd></div>
+            <div v-if="latest.get(bovine.id)"><dt>Última evaluación:</dt><dd>{{ formatDate(latest.get(bovine.id)?.evaluationDate) }}</dd></div>
+          </dl>
+          <RouterLink :to="`/bovinos/${bovine.id}`" class="bovine-card-action">Ver ficha del animal <i class="pi pi-arrow-right" aria-hidden="true" /></RouterLink>
+        </li>
+      </ul>
+      <Paginator v-if="filtered.length > 20" :first="page * 20" :rows="20" :total-records="filtered.length" template="PrevPageLink CurrentPageReport NextPageLink" current-page-report-template="{first}–{last} de {totalRecords}" @page="page = $event.page" />
+    </LoadState>
   </section>
 </template>

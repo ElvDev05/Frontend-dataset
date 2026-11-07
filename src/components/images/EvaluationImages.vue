@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
-import Message from "primevue/message";
 import { useToast } from "primevue/usetoast";
 import ImageCard from "./ImageCard.vue";
 import { imagesService } from "../../services/images.service";
@@ -9,10 +8,7 @@ import { evaluationsService } from "../../services/evaluations.service";
 import { angles, editable } from "../../utils/format";
 import { createSerialQueue } from "../../utils/serialQueue";
 import { errorMessage, isConflict } from "../../utils/errors";
-import {
-  captureCoverage,
-  verifiedImageCount,
-} from "../../utils/captureCoverage";
+import { verifiedImageCount } from "../../utils/captureCoverage";
 import type { CaptureAngle, Evaluation } from "../../types/api";
 const model = defineModel<Evaluation>({ required: true });
 // Model emits are applied by the parent on the next render. Keep the latest server response
@@ -49,21 +45,26 @@ const attempts = new Map<
 >();
 const controllers = new Set<AbortController>();
 const active = computed(() => Object.values(jobs).some((j) => j.busy));
-const coverage = computed(() => captureCoverage(evaluation.value.images));
-const photoSummary = computed(() => {
-  const count = verifiedImageCount(evaluation.value.images);
-  if (coverage.value === "FourImages")
-    return "Cobertura completa · 4 fotos";
-  if (coverage.value === "ThreeImages")
-    return "Cobertura mínima · 3 fotos";
-  if (count === 3) return "3 fotos · cobertura pendiente";
-  return `${count} de 3 mínimas`;
+// The API accepts exactly two photographs: rear and one lateral side. New captures use the
+// right side; an evaluation that already has a left-side photo keeps it in that slot.
+const requestedAngles = computed(() => {
+  const images = evaluation.value.images;
+  const lateral: CaptureAngle =
+    images.some((i) => i.angle === "LeftLateral") &&
+    !images.some((i) => i.angle === "RightLateral")
+      ? "LeftLateral"
+      : "RightLateral";
+  return angles.filter((a) => a.value === lateral || a.value === "Rear");
 });
-const freeAngles = computed(() =>
-  angles
-    .filter((a) => !evaluation.value.images.some((i) => i.angle === a.value))
-    .map((a) => a.value),
+// Earlier captures may still hold a top-back or a second lateral photo; list them so they can be removed.
+const extraAngles = computed(() =>
+  angles.filter(
+    (a) =>
+      !requestedAngles.value.some((r) => r.value === a.value) &&
+      evaluation.value.images.some((i) => i.angle === a.value),
+  ),
 );
+const photoSummary = computed(() => `${verifiedImageCount(evaluation.value.images.filter(image => requestedAngles.value.some(angle => angle.value === image.angle)))} de 2 cargadas`);
 let disposed = false;
 watch(active, (value) => emit("busy", value));
 async function mutate<T>(fn: () => Promise<T>) {
@@ -187,29 +188,6 @@ async function remove(angle: CaptureAngle) {
     job.busy = false;
   }
 }
-async function changeAngle(angle: CaptureAngle, target: CaptureAngle) {
-  const job = jobs[angle];
-  job.busy = true;
-  job.error = "";
-  job.phase = "Cambiando vista…";
-  try {
-    await mutate(async () => {
-      const image = evaluation.value.images.find((i) => i.angle === angle);
-      if (image)
-        evaluation.value = await imagesService.changeAngle(
-          evaluation.value.id,
-          image.imageIdentifier,
-          evaluation.value.version,
-          target,
-        );
-    });
-    attempts.delete(angle);
-  } catch (error) {
-    job.error = await errorMessage(error);
-  } finally {
-    job.busy = false;
-  }
-}
 function beforeUnload(event: BeforeUnloadEvent) {
   if (active.value) {
     event.preventDefault();
@@ -237,21 +215,21 @@ onBeforeUnmount(() => {
       <div>
         <h2>Registro fotográfico</h2>
         <p class="muted">
-          Registra como mínimo un lateral, la vista superior del lomo y la
-          posterior. El segundo lateral es opcional y completa la cobertura.
-          JPEG o PNG · Hasta 15 MiB y 40 megapíxeles por imagen.
+          Carga las vistas {{ requestedAngles[0]?.value === "LeftLateral" ? "lateral izquierda" : "lateral derecha" }} y posterior. JPEG o PNG · Hasta 15 MiB y
+          40 megapíxeles por imagen.
         </p>
       </div>
       <span class="count-badge">{{ photoSummary }}</span>
     </div>
-    <Message v-if="!editable(evaluation.status)" severity="info"
-      >Las fotografías de esta evaluación están disponibles para
-      consulta.</Message
-    >
+    <div v-if="!editable(evaluation.status)" class="evaluation-notice" role="note">
+      <i class="pi pi-info-circle" aria-hidden="true" />
+      <p>Las fotografías de esta evaluación están disponibles para consulta.</p>
+    </div>
     <div class="image-grid">
       <ImageCard
-        v-for="angle in angles"
+        v-for="(angle, index) in requestedAngles"
         :key="angle.value"
+        :position="index + 1"
         :evaluation-id="evaluation.id"
         :angle="angle.value"
         :image="evaluation.images.find((i) => i.angle === angle.value)"
@@ -261,11 +239,36 @@ onBeforeUnmount(() => {
         :progress="jobs[angle.value].progress"
         :phase="jobs[angle.value].phase"
         :error="jobs[angle.value].error"
-        :free-angles="freeAngles"
         @upload="(file) => upload(angle.value, file)"
         @remove="remove(angle.value)"
-        @change-angle="(target) => changeAngle(angle.value, target)"
       />
     </div>
+    <template v-if="extraAngles.length">
+      <div class="evaluation-notice" role="note">
+        <i class="pi pi-info-circle" aria-hidden="true" />
+        <p>
+          Estas fotografías ya no se usan: la evaluación solo admite la vista
+          posterior y un lateral. Retíralas para poder completarla.
+        </p>
+      </div>
+      <div class="image-grid">
+        <ImageCard
+          v-for="(angle, index) in extraAngles"
+          :key="angle.value"
+          :position="requestedAngles.length + index + 1"
+          :evaluation-id="evaluation.id"
+          :angle="angle.value"
+          :image="evaluation.images.find((i) => i.angle === angle.value)"
+          :locked="!editable(evaluation.status)"
+          :disabled="disabled"
+          :busy="jobs[angle.value].busy"
+          :progress="jobs[angle.value].progress"
+          :phase="jobs[angle.value].phase"
+          :error="jobs[angle.value].error"
+          @upload="(file) => upload(angle.value, file)"
+          @remove="remove(angle.value)"
+        />
+      </div>
+    </template>
   </section>
 </template>
